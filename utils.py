@@ -9,6 +9,7 @@ class Paths(object):
   test_path = path.join(data, 'Test1.csv')
   arff_path = path.join(data, 'Test1.arff')
   cache_file = path.join(temp_data, 'cache.npz')
+  web_content_file = path.join(temp_data, 'content.npz')
 
   ipList_file = path.join(temp_data, 'ipList.npz')
   timeList_file = path.join(temp_data, 'timeList.npz')
