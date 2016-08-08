@@ -6,7 +6,7 @@ class Paths(object):
   temp_data = ".temp"
   result = 'result'
   major = 'major'
-  test_path = path.join(data, 'Test1.csv')
+  temp_result = path.join(result, 'temp_result.csv')
   arff_path = path.join(data, 'Test1.arff')
   cache_file = path.join(temp_data, 'cache.npz')
   web_content_file = path.join(temp_data, 'content.npz')
