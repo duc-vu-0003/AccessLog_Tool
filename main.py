@@ -1,9 +1,6 @@
-import random
 import os
-import pickle
 import pandas as pd
 import numpy as np
-import os
 import logging
 from utils import Paths
 import time
@@ -11,362 +8,303 @@ import collections
 import encodings
 import re
 from os import path
-from bs4 import BeautifulSoup
-import requests
-from goose import Goose
-from urlparse import urlparse
+import MySQLdb
 
-def readWebContent(needWriteCSV):
-    if os.path.exists(Paths.web_content_file):
-        statinfo = os.stat(Paths.web_content_file)
-        if statinfo.st_size > 0 :
-            webContentFile = np.load(Paths.web_content_file)
-            # print(webContentFile['array3'])
+CHUNKSIZE = 100000 # processing 100,000 rows at a time
 
-            # for title in webContentFile['array3']:
-            #     print(title)
-
-            print(webContentFile['array3'])
-            # print(webContentFile['array3'])
-
-            if needWriteCSV:
-                df = pd.DataFrame(columns = ['web_link', 'title', 'description', 'category'])
-                df['web_link'] = webContentFile['array1']
-                df['title'] = webContentFile['array2']
-                df['description'] = webContentFile['array3']
-
-                print(df)
-
-                df.to_csv(Paths.temp_result, sep=',', encoding='UTF-8')
-
+#-----------preprocessing data------------
 def preprocessing():
-    print 'PreProcess'
+    print 'preprocessing raw data'
     start_time = time.time()
 
-    if os.path.exists(Paths.cache_file):
-        statinfo = os.stat(Paths.cache_file)
-        if statinfo.st_size == 0 :
+    if os.path.exists(Paths.data):
+        statinfo = os.stat(Paths.data)
+        if statinfo.st_size > 0:
             readRawFolder()
-    else:
-        readRawFolder()
-
-    cacheFile = np.load(Paths.cache_file)
-
-    # print(cacheFile['array1'])
-    # print(cacheFile['array2'])
-    # print(cacheFile['array3'])
-    # print(cacheFile['array4'])
-    # print(cacheFile['array5'])
-    # print(cacheFile['array6'])
-    # print(cacheFile['array7'])
-    # print(cacheFile['array8'])
-
-    webLinkList = cacheFile['array4']
-    refLinkList = cacheFile['array7']
-
-    crawlerLinkList = []
-
-    for num in range(0, len(refLinkList)):
-        linkCrawler = ""
-
-        if len(refLinkList[num]) > 10:
-            linkCrawler = refLinkList[num]
-        else:
-            linkCrawler = webLinkList[num]
-
-        crawlerLinkList.append(linkCrawler)
-
-    crawlerLinkList = remove_duplicate(crawlerLinkList)
-
-    webLinkList = None
-    refLinkList = None
-
-    print("Starting crawler .... " + str(len(crawlerLinkList)))
-    #
-    # webTitleList = []
-    # webDescriptionList = []
-
-    # Read result file to get postion to continue from last run
-    countRow = 0
-    if not os.path.isfile(Paths.temp_result):
-        countRow = 0
-    else:
-        dfResult = pd.read_csv(Paths.temp_result)
-        countRow = len(dfResult.index)
-
-    i = countRow
-    for link in crawlerLinkList[countRow : len(crawlerLinkList)]:
-        if not link.startswith("http://huaban.com/") and not link.startswith("http://member.1688.com/") and not link.startswith("http://api.droid4x.cn/") :
-
-            df = pd.DataFrame(columns = ['web_link', 'title', 'description', 'category'])
-
-            if link.endswith(".jpg") or link.endswith(".css") or link.endswith(".png") or link.endswith(".gif") or link.endswith(".js") or link.endswith(".jpeg") or link.endswith(".zip") or link.endswith(".mp4"):
-                item = pd.Series([link, "", "", ''], index=['web_link', 'title', 'description', 'category'])
-            elif link.startswith("http://su.ff.avast.com/") or "kaspersky" in link or "symantecliveupdate" in link or "avast" in link:
-                item = pd.Series([link, "Antivirus Update", "", 'Antivirus Update'], index=['web_link', 'title', 'description', 'category'])
-            elif link.startswith("http://api.") or link.startswith("https://api."):
-                item = pd.Series([link, "API", "", 'API'], index=['web_link', 'title', 'description', 'category'])
-            elif link.startswith("http://w.api.mega.co.nz/"):
-                item = pd.Series([link, "Mega API", "", 'API'], index=['web_link', 'title', 'description', 'category'])
-            elif link.startswith("http://nethd.org"):
-                item = pd.Series([link, "Torrent tracker", "", 'torrent'], index=['web_link', 'title', 'description', 'category'])
-            elif "windowsupdate" in link:
-                item = pd.Series([link, "Windos Update", "", 'windowsupdate'], index=['web_link', 'title', 'description', 'category'])
-            elif link.startswith("http://secure.livechatinc.com"):
-                item = pd.Series([link, "LiveChat - Customers choose live chat over phone or email", "LiveChat - premium live chat software and help desk software for business. Over 15,000 companies from 140 countries use LiveChat. Try for free!", 'Business'], index=['web_link', 'title', 'description', 'category'])
-            elif link.startswith("http://goweatherex.3g.cn") or link.startswith("http://rts.mobula.sdk.duapps.com/"):
-                item = pd.Series([link, "", "", ''], index=['web_link', 'title', 'description', 'category'])
-            else:
-                category = ""
-
-                if "chodientu" in link or "alokhuyenmai" in link or "vatgia" in link or "zoomua" in link or "ebay" in link or "nguyenkim" in link or "trananh" in link:
-                    category = "shopping"
-                elif "kenh14" in link or "vnexpress" in link or "dantri" in link or "vietbao" in link or "danviet" in link or "24h.com.vn" in link or "yan.vn" in link:
-                    category = "news"
-                elif "bongda.com.vn" in link:
-                    category = "news, sports, football"
-                elif "stackoverflow" in link:
-                    category = "IT Techniques"
-                elif link.startswith("http://mp3.zing.vn/") or link.startswith("http://www.nhaccuatui.com/"):
-                    category = "music, entertainment"
-
-                title, description = crawlerWebLinkManual(link)
-                if title == "" or description == "":
-                    title, description = crawlerWebLinkManual(getDomainFromUrl(link))
-                item = pd.Series([link, title, description, category], index=['web_link', 'title', 'description', 'category'])
-
-            # Save data for file
-            df = df.append(item, ignore_index=True)
-            appendDFToCSV(df, Paths.temp_result)
-            # webTitleList.append(title)
-            # webDescriptionList.append(description)
-            print(i)
-            i+=1
-            df = None
-
-    #write data to file here
-    # print("Saving data ....")
-    # np.savez_compressed(Paths.web_content_file, array1=crawlerLinkList, array2=webTitleList, array3=webDescriptionList)
-
-    end_time = time.time()
-    print '(Time to preprocess: %s)' % (end_time - start_time)
-
-def appendDFToCSV(df, csvFilePath, sep=","):
-    import os
-    if not os.path.isfile(csvFilePath):
-        df.to_csv(csvFilePath, mode='a', index=False, sep=sep, encoding='UTF-8')
-    elif len(df.columns) != len(pd.read_csv(csvFilePath, nrows=1, sep=sep).columns):
-        raise Exception("Columns do not match!! Dataframe has " + str(len(df.columns)) + " columns. CSV file has " + str(len(pd.read_csv(csvFilePath, nrows=1, sep=sep).columns)) + " columns.")
-    elif not (df.columns == pd.read_csv(csvFilePath, nrows=1, sep=sep).columns).all():
-        raise Exception("Columns and column order of dataframe and csv file do not match!!")
-    else:
-        df.to_csv(csvFilePath, mode='a', index=False, sep=sep, header=False, encoding='UTF-8')
 
 def readRawFolder():
-    subDirs = Paths.data
-
-    if not os.path.exists(subDirs):
-        os.makedirs(subDirs)
-        os.makedirs(temp_data)
-        os.makedirs(result)
+    if not os.path.exists(Paths.data):
+        os.makedirs(Paths.data)
+        os.makedirs(Paths.result)
         print('Input data not found, please put access log data to folder data :)')
         return
 
-    dirs = os.listdir(subDirs)
+    print("Connecting to MySql...")
+    db = MySQLdb.connect("localhost", "root", "ngango", "FUWebLog", use_unicode=True, charset="utf8")
+    print("Connected to MySql - DB: FUWebLog")
+    # prepare a cursor object using cursor() method
+    cursor = db.cursor()
 
-    ipListRaw = []
-    timeListRaw = []
-    methodListRaw = []
-    requestLinkListRaw = []
-    statusCodeListRaw = []
-    requestLineListRaw = []
-    refererLinkListRaw = []
-    userAgentListRaw = []
+    #create table in MySQL if need
+    creadTableIfNeed(db, cursor)
 
+    dirs = os.listdir(Paths.data)
     # This would print all the files and directories
-    for file in dirs:
+    for fileName in dirs:
+        if os.path.isdir(Paths.data + "/" + fileName):
+            pathName = os.listdir(Paths.data + "/" + fileName)
+            for fileSub in Paths.data:
+                readRawFile(fileSub, db, cursor)
+        else:
+            readRawFile(fileName, db, cursor)
 
-        ipList = []
-        timeList = []
-        methodList = []
-        requestLinkList = []
-        statusCodeList = []
-        requestLineList = []
-        refererLinkList = []
-        userAgentList = []
+    print("Disconnect from MySql - DB: FUWebLog")
+    db.close()
 
-        if not file.startswith("."):
-            print(file)
-            if os.path.isdir(subDirs + "/" + file):
-                pathName = os.listdir(subDirs + "/" + file)
-                for fileSub in subDirs:
-                    ipList, timeList, methodList, requestLinkList, statusCodeList, requestLineList, refererLinkList, userAgentList = readRawFile(fileSub)
-            else:
-                ipList, timeList, methodList, requestLinkList, statusCodeList, requestLineList, refererLinkList, userAgentList = readRawFile(file)
-
-        ipListRaw += ipList
-        timeListRaw += timeList
-        methodListRaw += methodList
-        requestLinkListRaw += requestLinkList
-        statusCodeListRaw += statusCodeList
-        requestLineListRaw += requestLineList
-        refererLinkListRaw += refererLinkList
-        userAgentListRaw += userAgentList
-
-    print("Writing cache....")
-    # Save cache
-    # print("Writing ipListRaw....")
-    # np.savez_compressed(Paths.ipList_file, array1=ipListRaw)
-    # print("Writing timeListRaw....")
-    # np.savez_compressed(Paths.timeList_file, array1=timeListRaw)
-    # print("Writing methodListRaw....")
-    # np.savez_compressed(Paths.methodList_file, array1=methodListRaw)
-    # print("Writing requestLinkListRaw....")
-    # np.savez_compressed(Paths.requestLinkList_file, array1=requestLinkListRaw)
-    # print("Writing statusCodeListRaw....")
-    # np.savez_compressed(Paths.statusCodeList_file, array1=statusCodeListRaw)
-    # print("Writing requestLineListRaw....")
-    # np.savez_compressed(Paths.requestLineList_file, array1=requestLineListRaw)
-    # print("Writing userAgentListRaw....")
-    # np.savez_compressed(Paths.userAgentList_file, array1=userAgentListRaw)
-    # print("Writing refererLinkListRaw....")
-    # np.savez_compressed(Paths.refererLinkList_file, array1=refererLinkListRaw)
-    np.savez_compressed(Paths.cache_file, array1=ipListRaw, array2=timeListRaw, array3=methodListRaw, array4=requestLinkListRaw, array5=statusCodeListRaw, array6=requestLineListRaw, array7=refererLinkListRaw, array8=userAgentListRaw)
-
-def readRawFile(fileName):
-    if not os.path.exists(Paths.data + "/" + fileName):
+def readRawFile(fileName, db, cursor):
+    filePath = Paths.data + "/" + fileName
+    if not os.path.exists(filePath):
         print('File Not Found!!!')
         return
 
-    ipList = []
-    timeList = []
-    methodList = []
-    requestLinkList = []
-    statusCodeList = []
-    requestLineList = []
-    refererLinkList = []
-    userAgentList = []
+    if os.path.splitext(fileName)[1][1:].strip().lower() != "csv":
+        return
 
-    with open(Paths.data + "/" + fileName, 'r') as logFile:
-        lines = logFile.readlines()
-        for line in lines:
-            line = line.strip()
-            line = line.replace('"', '')
-            if len(line) > 0:
-                attributes = line.split(" ")
+    print("Reading: " + filePath)
+    #Try to spit data to smaller parts and read
+    reader = pd.read_table(filePath, chunksize=CHUNKSIZE, sep=",", encoding='utf-8')
 
-                if len(attributes) < 12:
-                    #Specify case
-                    ipList.append("")
-                    timeList.append("")
-                    methodList.append("")
-                    requestLinkList.append("")
-                    statusCodeList.append("")
-                    requestLineList.append("")
-                    refererLinkList.append("")
-                    userAgentList.append("")
-                else:
-                    ipList.append(attributes[0])
-                    timeList.append(attributes[3] + attributes[4])
-                    methodList.append(attributes[5])
-                    requestLinkList.append(attributes[6])
-                    statusCodeList.append(attributes[8])
-                    requestLineList.append(attributes[7])
-                    refererLinkList.append(attributes[11])
-                    userAgent = " ".join(attributes[12:])
-                    userAgentList.append(userAgent)
+    result = getItemsCount(db, cursor)
+    print "There are %d rows of data" % (result)
 
+    print("Start import data to MySQL server...")
+    for df in reader:
+        # process each data frame
+        result += process_frame(df, db, cursor)
+        print("FUWebLog: Imported %d records" % result)
 
-    return ipList, timeList, methodList, requestLinkList, statusCodeList, requestLineList, refererLinkList, userAgentList
+    print "There are %d rows of data" % (result)
 
-def crawlerWebLinkManual(url):
+def process_frame(df, db, cursor):
+    # process data frame
+    # Write data to db
+    importWebLog(df, db, cursor)
+    return len(df)
 
-    print("Crawler: " + url)
-    #Title and description
-    title = ""
-    description = ""
-
+#-----------MySQL------------
+def isHaveTable(db, cursor):
+    result = False
+    sql = "SELECT * \
+            FROM information_schema.tables \
+            WHERE table_schema = 'FUWebLog' \
+            AND table_name = 'WebProxyLog' \
+            LIMIT 1;"
     try:
-        page3 = requests.get(url)
-        page3.encoding = 'UTF-8'
+        # Execute the SQL command
+        cursor.execute(sql)
+        # Fetch all the rows in a list of lists.
+        results = cursor.fetchall()
+        result = len(results) > 0
+    except:
+        result = False
+    return result
 
-        soup3 = BeautifulSoup(page3.text, "lxml")
-        desc = soup3.find(attrs={'name':'Description'})
-        if desc == None:
-            desc = soup3.find(attrs={'name':'description'})
+def getItemsCount(db, cursor):
+    sql = "SELECT COUNT(*) \
+            FROM FUWebLog.WebProxyLog;"
+    try:
+        # Execute the SQL command
+        cursor.execute(sql)
+        # Fetch all the rows in a list of lists.
+        results = cursor.fetchall()
+        return results[0][0]
+    except:
+        return 0
 
-        title = soup3.title.string
-        description = desc['content']
-    except Exception as e:
-        # print '%s (%s)' % (e.message, type(e))
-        title = ""
-        description = ""
+def creadTableIfNeed(db, cursor):
+    print("FUWebLog: Check table WebProxyLog...")
+    if isHaveTable(db, cursor):
+        print("FUWebLog: Already have table WebProxyLog...")
+        return
 
-    # kill all script and style elements
-    # for script in soup3(["script", "style"]):
-    #     script.extract()    # rip it out
-    #
-    # # get text
-    # text = soup3.get_text()
-    #
-    # # break into lines and remove leading and trailing space on each
-    # lines = (line.strip() for line in text.splitlines())
-    # # break multi-headlines into a line each
-    # chunks = (phrase.strip() for line in lines for phrase in line.split("  "))
-    # # drop blank lines
-    # text = '\n'.join(chunk for chunk in chunks if chunk)
-    # # print(text)
-    return title, description
+    # Drop table if it already exist using execute() method.
+    cursor.execute("DROP TABLE IF EXISTS WebProxyLog")
+    # Create table as per requirement
+    sql = """CREATE TABLE WebProxyLog (
+             ClientIP CHAR(38) NOT NULL,
+             ClientUserName NVARCHAR(514),
+             ClientAgent VARCHAR(128),
+             ClientAuthenticate INT,
+             logTime VARCHAR(50),
+             service SMALLINT,
+             servername NVARCHAR(32),
+             referredserver VARCHAR(255),
+             DestHost NVARCHAR(255),
+             DestHostIP CHAR(38),
+             DestHostPort INT,
+             processingtime INT,
+             bytesrecvd BIGINT,
+             bytessent BIGINT,
+             protocol VARCHAR(13),
+         	 transport VARCHAR(8),
+         	 operation VARCHAR(24),
+         	 uri VARCHAR(2048),
+         	 mimetype VARCHAR(32),
+         	 objectsource SMALLINT,
+         	 resultcode INT,
+         	 CacheInfo INT,
+         	 rule NVARCHAR(128),
+         	 FilterInfo NVARCHAR(256),
+         	 SrcNetwork NVARCHAR(128),
+         	 DstNetwork NVARCHAR(128),
+         	 ErrorInfo INT,
+         	 Action SMALLINT,
+         	 GmtLogTime VARCHAR(50),
+         	 AuthenticationServer VARCHAR(255),
+         	 ipsScanResult SMALLINT,
+         	 ipsSignature NVARCHAR(128),
+         	 ThreatName VARCHAR(255),
+         	 MalwareInspectionAction SMALLINT,
+         	 MalwareInspectionResult SMALLINT,
+         	 UrlCategory INT,
+         	 MalwareInspectionContentDeliveryMethod SMALLINT,
+         	 UagArrayId VARCHAR(20),
+         	 UagVersion INT,
+         	 UagModuleId VARCHAR(20),
+         	 UagId INT,
+         	 UagSeverity VARCHAR(20),
+         	 UagType VARCHAR(20),
+         	 UagEventName VARCHAR(60),
+         	 UagSessionId VARCHAR(50),
+         	 UagTrunkName VARCHAR(128),
+         	 UagServiceName VARCHAR(20),
+         	 UagErrorCode INT,
+         	 MalwareInspectionDuration INT,
+         	 MalwareInspectionThreatLevel SMALLINT,
+         	 InternalServiceInfo INT,
+         	 ipsApplicationProtocol NVARCHAR(128),
+         	 NATAddress CHAR(38),
+         	 UrlCategorizationReason SMALLINT,
+         	 SessionType SMALLINT,
+         	 UrlDestHost VARCHAR(255),
+         	 SrcPort INT,
+             WebTitle TEXT(21844) CHARACTER SET utf8,
+             WebDescription TEXT(21844) CHARACTER SET utf8,
+             WebKeywords TEXT(21844) CHARACTER SET utf8,
+             Category TEXT(21844) CHARACTER SET utf8)"""
 
-def crawlerWebLink(url):
-    g = Goose()
-    article = g.extract(url=url)
+    cursor.execute(sql)
+    print("FUWebLog: Create table WebProxyLog succesfully!!!")
 
-    print(article.title)
-    print(article.meta_description)
-    print(article.cleaned_text)
+def importWebLog(df, db, cursor):
+    for index, row in df.iterrows():
+        # Prepare SQL query to INSERT a record into the database.
+        sql = "INSERT INTO WebProxyLog(ClientIP, \
+                                    ClientUserName, \
+                                    ClientAgent, \
+                                    ClientAuthenticate, \
+                                    logTime, \
+                                    service, \
+                                    servername, \
+                                    referredserver, \
+                                    DestHost, \
+                                    DestHostIP, \
+                                    DestHostPort, \
+                                    processingtime, \
+                                    bytesrecvd, \
+                                    bytessent, \
+                                    protocol, \
+                                    transport, \
+                                    operation, \
+                                    uri, \
+                                    mimetype, \
+                                    objectsource, \
+                                    resultcode, \
+                                    CacheInfo, \
+                                    rule, \
+                                    FilterInfo, \
+                                    SrcNetwork, \
+                                    DstNetwork, \
+                                    ErrorInfo, \
+                                    Action, \
+                                    GmtLogTime, \
+                                    AuthenticationServer, \
+                                    ipsScanResult, \
+                                    ipsSignature, \
+                                    ThreatName, \
+                                    MalwareInspectionAction, \
+                                    MalwareInspectionResult, \
+                                    UrlCategory, \
+                                    MalwareInspectionContentDeliveryMethod, \
+                                    UagArrayId, \
+                                    UagVersion, \
+                                    UagModuleId, \
+                                    UagId, \
+                                    UagSeverity, \
+                                    UagType, \
+                                    UagEventName, \
+                                    UagSessionId, \
+                                    UagTrunkName, \
+                                    UagServiceName, \
+                                    UagErrorCode, \
+                                    MalwareInspectionDuration, \
+                                    MalwareInspectionThreatLevel, \
+                                    InternalServiceInfo, \
+                                    ipsApplicationProtocol, \
+                                    NATAddress, \
+                                    UrlCategorizationReason, \
+                                    SessionType, \
+                                    UrlDestHost, \
+                                    SrcPort) \
+               VALUES (%s, %s, %s,  %s ,  %s , \
+                 %s ,  %s ,  %s ,  %s ,  %s , \
+                 %s ,  %s ,  %s ,  %s ,  %s , \
+                 %s ,  %s ,  %s ,  %s ,  %s , \
+                 %s ,  %s ,  %s ,  %s ,  %s , \
+                 %s ,  %s ,  %s ,  %s ,  %s , \
+                 %s ,  %s ,  %s ,  %s ,  %s , \
+                 %s ,  %s ,  %s ,  %s ,  %s , \
+                 %s ,  %s ,  %s ,  %s ,  %s , \
+                 %s ,  %s ,  %s ,  %s ,  %s , \
+                 %s ,  %s ,  %s ,  %s ,  %s , \
+                 %s ,  %s )"
+        try:
+           # Execute the SQL command
+           cursor.execute(sql, (row[0], row[1], row[2], row[3], row[4],
+                                row[5], row[6], row[7], row[8], row[9],
+                                row[10], row[11], row[12], row[13], row[14],
+                                row[15], row[16], row[17], row[18], row[19],
+                                row[20], row[21], row[22], row[23], row[24],
+                                row[25], row[26], row[27], row[28], row[29],
+                                row[30], row[31], row[32], row[33], row[34],
+                                row[35], row[36], row[37], row[38], row[39],
+                                row[40], row[41], row[42], row[43], row[44],
+                                row[45], row[46], row[47], row[48], row[49],
+                                row[50], row[51], row[52], row[53], row[54],
+                                row[55], row[56]))
+           # Commit your changes in the database
+           db.commit()
+        except Exception as error:
+           # Rollback in case there is any error
+           print(error)
+           db.rollback()
 
-def remove_duplicate(alist):
+#-----------Utils------------
+def escapeString(value):
+    return value.replace("'", "")
 
-    #I remove some link cannot get
-    alist.remove('http://w.api.mega.co.nz/YsNZcTlk1n1JLsn33fHkXJQ_RlA')
-    alist.remove('http://y7549610.ivps9x.u.avast.com/ivps9x/vps_win64-fdc-fdb.vpx')
-    alist.remove('http://j1.baomoi.com/i/160531/9d/646459.jpg?preset=default&mode=crop&anchor=topcenter&scale=both&width=250&height=250')
+#-----------Web Crawler------------
 
 
-    return list(set(alist))
-
-def getDomainFromUrl(url):
-    parsed_uri = urlparse(url)
-    domain = '{uri.scheme}://{uri.netloc}/'.format(uri=parsed_uri)
-    return domain
-
+#-----------Execute------------
 def main():
     oper = -1
     while int(oper) != 0:
         print('**************************************')
         print('Choose one of the following: ')
         print('1 - Pre Processing Raw Data')
-        print('2 - Crawler Web link')
-        print('3 - Read Saved Web Content')
-        print('4 - Get Domain from URL')
-        print('5 - Write to CSV')
         print('0 - Exit')
         print('**************************************')
-        oper = int(input("Enter your options: "))
+
+        try:
+            oper = int(input("Enter your options: "))
+        except Exception as error:
+            print("Please input a number!!!")
 
         if oper == 0:
             exit()
         elif oper == 1:
             preprocessing()
-        elif oper == 2:
-            crawlerWebLinkManual('http://www.ebay.vn/tim-kiem/Marc+jacobs+lip.html?type=2utm_source=Email&utm_medium=Danhmuc&utm_content=EBAY_2016&utm_campaign=EM_0206_SKLD')
-        elif oper == 3:
-            readWebContent(False)
-        elif oper == 4:
-            getDomainFromUrl("http://p1.msg.zaloapp.com/?zpw_type=20&zpw_ver=35&zpw_sek=t0vS.138360650.a1.D6qXZdVRAeqzx1M5LjigZGpvJ-PLuGYx0-9xp32qOhy7z078FPbJoWAMRECsvXUl2gugyfFRAertsYsSJ8nal0&params=148217145418")
-        elif oper == 5:
-            readWebContent(True)
 
 if __name__ == "__main__":
     main()
